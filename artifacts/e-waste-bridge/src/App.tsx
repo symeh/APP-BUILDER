@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -6,10 +6,11 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, Link, Router as WouterRouter, useLocation } from 'wouter';
 import {
   ArrowRight, BadgeCheck, BatteryWarning, Bell, Box, Camera, Check,
-  CheckCircle2, ChevronRight, CircleDollarSign, CreditCard, FileText,
-  HandCoins, Headphones, ImagePlus, Info, Landmark, Leaf, MapPin,
-  MonitorSmartphone, PackageCheck, Phone, Plus, Recycle, Search,
-  ShieldCheck, Sparkles, TriangleAlert, WalletCards, X, Zap
+  CheckCircle2, ChevronRight, CircleDollarSign, Cloud, CloudOff, CreditCard,
+  FileText, GitCompare, HandCoins, Headphones, ImagePlus, Info, Landmark,
+  Leaf, MapPin, MonitorSmartphone, PackageCheck, Phone, Plus, RefreshCw,
+  Recycle, Search, ShieldCheck, Sparkles, TriangleAlert, WalletCards,
+  WifiOff, X, Zap
 } from 'lucide-react';
 import NotFound from '@/pages/not-found';
 
@@ -20,6 +21,7 @@ type MaterialLot = {
   id: string; category: string; description: string; image?: string; weightKg: number;
   condition: string; estimatedValue: number; quotedPrice: number; finalPrice: number;
   collectedAt: string; collectionLocation: string; status: LotStatus; recyclerId: string;
+  revision?: number; syncState?: 'synced' | 'pending' | 'conflict'; lastSyncedAt?: string;
 };
 type PricePoint = {
   category: string; subcategory: string; location: string; date: string; buyingPrice: number;
@@ -37,6 +39,38 @@ type Transaction = {
 };
 type Earnings = { transactionId: string; amount: number; status: 'Paid' | 'Pending'; method: string; date: string };
 type SafetyTip = { title: string; copy: string; risk: string; pictogram: string; audioAvailable: boolean };
+type SyncActionType = 'create' | 'update' | 'offer' | 'handover';
+type SyncActionStatus = 'pending' | 'conflict' | 'synced';
+type SyncAction = {
+  id: string; type: SyncActionType; lotId: string; label: string; queuedAt: string;
+  baseRevision: number; sourceRole: Role; status: SyncActionStatus;
+  changes?: Partial<MaterialLot>; conflictMessage?: string; syncedAt?: string;
+};
+
+const storageKeys = {
+  lots: 'e-waste-bridge:lots',
+  transactions: 'e-waste-bridge:transactions',
+  syncQueue: 'e-waste-bridge:sync-queue',
+  lastSyncedAt: 'e-waste-bridge:last-synced',
+};
+function readLocal<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const saved = window.localStorage.getItem(key);
+    return saved ? JSON.parse(saved) as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function syncTime() {
+  return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+function actionLabel(type: SyncActionType, lotId: string) {
+  if (type === 'create') return `New lot ${lotId}`;
+  if (type === 'offer') return `Recycler offer · ${lotId}`;
+  if (type === 'handover') return `Handover · ${lotId}`;
+  return `Lot details edited · ${lotId}`;
+}
 
 const queryClient = new QueryClient();
 const prices: PricePoint[] = [
@@ -77,6 +111,36 @@ function StatusPill({ status }: { status: string }) {
   const kind = status.toLowerCase().includes('paid') || status.toLowerCase().includes('complete') || status.toLowerCase().includes('verified') ? 'paid' : status.toLowerCase().includes('pending') || status.toLowerCase().includes('matching') ? 'waiting' : 'matched';
   return <span className={`lot-status ${kind}`} data-testid={`status-${status.toLowerCase().replaceAll(' ', '-')}`}><span>{status}</span></span>;
 }
+function SyncBadge({ status }: { status: SyncActionStatus }) {
+  const label = status === 'conflict' ? 'Needs review' : status === 'pending' ? 'Pending' : 'Synced';
+  return <span className={`sync-badge ${status}`}><span className="sync-badge-dot" />{label}</span>;
+}
+type SyncPanelProps = {
+  queue: SyncAction[]; lastSyncedAt: string; networkAvailable: boolean; offlineMode: boolean;
+  onToggleOffline: () => void; onSync: () => void;
+  onResolveConflict: (actionId: string, resolution: 'local' | 'shared') => void;
+};
+function SyncQueuePanel({ queue, lastSyncedAt, networkAvailable, offlineMode, onToggleOffline, onSync, onResolveConflict }: SyncPanelProps) {
+  const active = queue.filter(action => action.status !== 'synced');
+  const recent = queue.filter(action => action.status === 'synced').slice(-3).reverse();
+  const pendingCount = active.filter(action => action.status === 'pending').length;
+  return <div className="card card-pad sync-panel" data-testid="card-sync-queue">
+    <div className="card-header">
+      <div><h2 className="section-title"><Cloud size={17} style={{ verticalAlign: 'middle', marginRight: 7 }} />Sync queue</h2><div className="small-copy" style={{ marginTop: 5 }}>Saved locally first. Nothing is lost when the signal drops.</div></div>
+      <span className={`network-state ${networkAvailable ? 'online' : 'offline'}`}><span className="network-state-dot" />{networkAvailable ? 'Connection available' : 'Working offline'}</span>
+    </div>
+    <div className="sync-summary">
+      <div><strong>{active.length}</strong> waiting {active.length === 1 ? 'item' : 'items'} <span className="small-copy">· Last synchronized {lastSyncedAt}</span></div>
+      <div className="sync-actions"><button className="button button-quiet button-small" onClick={onToggleOffline} data-testid="button-toggle-offline"><WifiOff size={14} />{offlineMode ? 'Use connection' : 'Work offline'}</button><button className="button button-primary button-small" onClick={onSync} disabled={!networkAvailable || pendingCount === 0} data-testid="button-sync-now"><RefreshCw size={14} />Sync now</button></div>
+    </div>
+    {active.length > 0 ? <div className="sync-list">{active.map(action => <div className="sync-row" key={action.id} data-testid={`sync-row-${action.lotId}-${action.type}`}>
+      <div className="sync-row-icon">{action.status === 'conflict' ? <GitCompare size={15} /> : <CloudOff size={15} />}</div>
+      <div className="sync-row-copy"><strong>{action.label}</strong><span>Queued {action.queuedAt} · {action.sourceRole === 'collector' ? 'Collector' : 'Recycler'}</span>{action.conflictMessage && <em>{action.conflictMessage}</em>}</div>
+      <div className="sync-row-end"><SyncBadge status={action.status} />{action.status === 'conflict' && <div className="conflict-actions"><button className="button button-outline button-small" onClick={() => onResolveConflict(action.id, 'local')} data-testid={`button-keep-local-${action.lotId}`}>Keep my copy</button><button className="button button-quiet button-small" onClick={() => onResolveConflict(action.id, 'shared')} data-testid={`button-use-shared-${action.lotId}`}>Use shared</button></div>}</div>
+    </div>)}</div> : <div className="sync-empty"><CheckCircle2 size={17} /><span>No pending changes. New lots, edits and handovers will appear here.</span></div>}
+    {recent.length > 0 && <div className="sync-history"><div className="section-meta">Recent completed sync</div>{recent.map(action => <div className="sync-history-row" key={`${action.id}-history`}><CheckCircle2 size={14} /><span>{action.label}</span><span className="small-copy">Completed {action.syncedAt}</span></div>)}</div>}
+  </div>;
+}
 
 function Navigation({ role }: { role: Role }) {
   const [location] = useLocation();
@@ -92,21 +156,22 @@ function Navigation({ role }: { role: Role }) {
   <nav className="mobile-nav">{items.slice(0, 4).map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={location === href ? 'active' : ''} data-testid={`link-mobile-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon /><span>{label}</span></Link>)}</nav></>;
 }
 
-function Topbar({ role, setRole, language, setLanguage }: { role: Role; setRole: (r: Role) => void; language: Language; setLanguage: (l: Language) => void }) {
-  return <header className="topbar"><div className="top-context"><Leaf size={16} /> Practical tools for a fair handover <span className="offline-pill"><span className="offline-dot" />Offline ready</span></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+function Topbar({ role, setRole, language, setLanguage, queue, networkAvailable }: { role: Role; setRole: (r: Role) => void; language: Language; setLanguage: (l: Language) => void; queue: SyncAction[]; networkAvailable: boolean }) {
+  const activeCount = queue.filter(action => action.status !== 'synced').length;
+  return <header className="topbar"><div className="top-context"><Leaf size={16} /> Practical tools for a fair handover <span className={`offline-pill ${networkAvailable ? 'connected' : ''}`}><span className="offline-dot" />{networkAvailable ? 'Sync ready' : 'Offline mode'}{activeCount > 0 ? ` · ${activeCount} pending` : ''}</span></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
     <select className="select" style={{ width: 104, height: 34, padding: '0 8px', fontSize: 11 }} value={language} onChange={e => setLanguage(e.target.value as Language)} data-testid="select-language"><option>English</option><option>हिंदी</option><option>मराठी</option></select>
     <div className="role-toggle"><button className={`role-button ${role === 'collector' ? 'active' : ''}`} onClick={() => setRole('collector')} data-testid="button-role-collector">Collector</button><button className={`role-button ${role === 'recycler' ? 'active' : ''}`} onClick={() => setRole('recycler')} data-testid="button-role-recycler">Recycler</button></div>
     <button className="button button-quiet button-small" aria-label="Notifications" data-testid="button-notifications"><Bell size={15} /></button>
   </div></header>;
 }
 
-function Shell({ children, role, setRole, language, setLanguage }: { children: React.ReactNode; role: Role; setRole: (r: Role) => void; language: Language; setLanguage: (l: Language) => void }) {
-  return <div className="app-shell"><Navigation role={role} /><div className="main-column"><Topbar role={role} setRole={setRole} language={language} setLanguage={setLanguage} />{children}</div></div>;
+function Shell({ children, role, setRole, language, setLanguage, queue, networkAvailable }: { children: React.ReactNode; role: Role; setRole: (r: Role) => void; language: Language; setLanguage: (l: Language) => void; queue: SyncAction[]; networkAvailable: boolean }) {
+  return <div className="app-shell"><Navigation role={role} /><div className="main-column"><Topbar role={role} setRole={setRole} language={language} setLanguage={setLanguage} queue={queue} networkAvailable={networkAvailable} />{children}</div></div>;
 }
 
-function Home({ role, lots, setLots, showToast }: { role: Role; lots: MaterialLot[]; setLots: React.Dispatch<React.SetStateAction<MaterialLot[]>>; showToast: (text: string) => void }) {
+function Home({ role, lots, applyChange, showToast, sync }: { role: Role; lots: MaterialLot[]; applyChange: (id: string, changes: Partial<MaterialLot>, type: SyncActionType, label?: string) => void; showToast: (text: string) => void; sync: SyncPanelProps }) {
   const latest = lots[0];
-  if (role === 'recycler') return <RecyclerHome lots={lots} setLots={setLots} showToast={showToast} />;
+  if (role === 'recycler') return <RecyclerHome lots={lots} applyChange={applyChange} showToast={showToast} sync={sync} />;
   return <main className="page">
     <div className="page-heading"><div><div className="eyebrow">Tuesday · 25 June 2024 · Pune</div><h1 className="page-title">Good morning, Ramesh.</h1><p className="page-intro">Turn today’s collection into a fair, visible handover. You are ready to go.</p></div><Link href="/new-lot" className="button button-gold" data-testid="button-start-lot"><Plus size={16} /> Start a new lot</Link></div>
     <div className="grid grid-4" style={{ marginBottom: 18 }}><div className="card stat-card"><div className="stat-label">This month earned</div><div className="stat-value">₹10,000</div><div className="stat-note">↑ ₹1,240 from last month</div></div><div className="card stat-card"><div className="stat-label">Lots handed over</div><div className="stat-value">06</div><div className="stat-note">All traceable</div></div><div className="card stat-card"><div className="stat-label">Waiting for pickup</div><div className="stat-value">02</div><div className="stat-note" style={{ color: '#b7684e' }}>Action needed</div></div><div className="card stat-card"><div className="stat-label">Saved offline</div><div className="stat-value">03</div><div className="stat-note">Will sync later</div></div></div>
@@ -114,12 +179,13 @@ function Home({ role, lots, setLots, showToast }: { role: Role; lots: MaterialLo
     <div className="grid grid-2"><div className="card card-pad"><div className="card-header"><h2 className="section-title">Active lot</h2><Link href="/lots" className="section-meta" data-testid="link-view-all-lots">View all <ChevronRight size={13} style={{ verticalAlign: 'middle' }} /></Link></div><div className="lot-row"><div className="lot-thumb"><Recycle size={21} /></div><div><div className="lot-name">{latest.category}</div><div className="lot-desc">{latest.weightKg} kg · {latest.collectionLocation}</div></div><div className="lot-amount"><strong>{formatMoney(latest.quotedPrice)}</strong><br /><StatusPill status={latest.status} /></div></div><div className="divider" /><div className="small-copy" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span>Handover progress</span><strong style={{ color: '#3d7253' }}>2 of 4 steps</strong></div><div className="progress-line"><span style={{ width: '50%' }} /></div></div><div className="card card-pad match-card"><div className="card-header"><h2 className="section-title">Nearby recycler match</h2><span className="lot-status matched">Best match</span></div><div className="match-facility"><div className="facility-badge">GR</div><div><div className="lot-name">GreenLoop Recovery</div><div className="lot-desc"><MapPin size={11} style={{ verticalAlign: 'middle' }} /> 4.8 km · Bhosari</div></div></div><div className="divider" /><div className="grid grid-2"><div><div className="section-meta">Their offer</div><div className="stat-value" style={{ fontSize: 22, marginTop: 5 }}>₹275<span style={{ fontSize: 11, letterSpacing: 0 }}>/kg</span></div></div><div><div className="section-meta">Pickup</div><div className="lot-name" style={{ marginTop: 10 }}>Tomorrow, 9–12</div></div></div><button className="button button-primary" style={{ width: '100%', marginTop: 16 }} onClick={() => showToast('GreenLoop marked for your handover')} data-testid="button-choose-recycler">Choose this recycler <ArrowRight size={15} /></button></div></div>
     <div className="card card-pad" style={{ marginTop: 18 }}><div className="card-header"><h2 className="section-title">Today’s price snapshot</h2><Link href="/prices" className="section-meta" data-testid="link-see-price-board">Full price board <ChevronRight size={13} style={{ verticalAlign: 'middle' }} /></Link></div><div className="grid grid-3">{prices.slice(0, 3).map(p => <div key={p.category}><div className="section-meta">{p.category}</div><div style={{ color: '#294d44', fontFamily: 'Space Grotesk', fontSize: 22, marginTop: 7 }}>{formatMoney(p.buyingPrice)}<small style={{ color: '#7b8c83', fontFamily: 'Manrope', fontSize: 10 }}> / {p.unit}</small></div><div className={p.trend === 'up' ? 'trend-up' : 'trend-flat'} style={{ fontSize: 10, marginTop: 3 }}>{p.trend === 'up' ? '↑ Up today' : '→ Stable today'}</div></div>)}</div></div>
     <div className="notice" style={{ marginTop: 18 }}><ShieldCheck size={16} /><span><strong>Safety first:</strong> Keep batteries separate from the rest of your pile. Never burn wires. <Link href="/safety" style={{ color: '#2f694d', fontWeight: 800 }} data-testid="link-safety-reminder">See the picture guide.</Link></span></div>
+    <SyncQueuePanel {...sync} />
   </main>;
 }
 
-function RecyclerHome({ lots, setLots, showToast }: { lots: MaterialLot[]; setLots: React.Dispatch<React.SetStateAction<MaterialLot[]>>; showToast: (text: string) => void }) {
+function RecyclerHome({ lots, applyChange, showToast, sync }: { lots: MaterialLot[]; applyChange: (id: string, changes: Partial<MaterialLot>, type: SyncActionType, label?: string) => void; showToast: (text: string) => void; sync: SyncPanelProps }) {
   const active = lots.filter(l => l.status === 'Matching' || l.status === 'Pickup ready');
-  return <main className="page"><div className="page-heading"><div><div className="eyebrow">Recycler workspace · local intake</div><h1 className="page-title">Good morning, Priya.</h1><p className="page-intro">A clear queue for material that is ready to move safely into your facility.</p></div><Link href="/recycler" className="button button-gold" data-testid="button-open-queue"><PackageCheck size={16} /> Open intake queue</Link></div><div className="grid grid-4" style={{ marginBottom: 18 }}><div className="card stat-card"><div className="stat-label">Awaiting your review</div><div className="stat-value">{active.length}</div><div className="stat-note">Collector lots nearby</div></div><div className="card stat-card"><div className="stat-label">Pickup today</div><div className="stat-value">04</div><div className="stat-note">Across Pune</div></div><div className="card stat-card"><div className="stat-label">Material received</div><div className="stat-value">1.8 t</div><div className="stat-note">This month</div></div><div className="card stat-card"><div className="stat-label">Authorization</div><div className="stat-value" style={{ fontSize: 19, marginTop: 18 }}>Verified</div><div className="stat-note">MPCB / EPR-4421</div></div></div><div className="grid grid-2"><div className="hero-card"><div className="hero-tag">Operations view</div><h2>Every lot arrives with a story.</h2><p>Review the collector’s material, offer a rate and leave a trace of the handover.</p><Link href="/recycler" className="button button-gold" data-testid="button-review-intake">Review intake <ArrowRight size={15} /></Link></div><div className="card card-pad"><div className="card-header"><h2 className="section-title">Next pickup</h2><span className="lot-status waiting">Tomorrow</span></div><div className="match-facility"><div className="facility-badge">RS</div><div><div className="lot-name">Ramesh S. · LOT-2407</div><div className="lot-desc"><MapPin size={11} style={{ verticalAlign: 'middle' }} /> Shivaji Nagar · 4.8 km away</div></div></div><div className="divider" /><div className="small-copy">Mixed circuit boards · 8.5 kg · sorted, dry</div><button className="button button-primary" style={{ marginTop: 16, width: '100%' }} onClick={() => { setLots(prev => prev.map(l => l.id === 'LOT-2407' ? { ...l, status: 'Pickup ready' } : l)); showToast('Pickup confirmed for LOT-2407'); }} data-testid="button-confirm-next-pickup"><Check size={15} /> Confirm pickup</button></div></div></main>;
+  return <main className="page"><div className="page-heading"><div><div className="eyebrow">Recycler workspace · local intake</div><h1 className="page-title">Good morning, Priya.</h1><p className="page-intro">A clear queue for material that is ready to move safely into your facility.</p></div><Link href="/recycler" className="button button-gold" data-testid="button-open-queue"><PackageCheck size={16} /> Open intake queue</Link></div><div className="grid grid-4" style={{ marginBottom: 18 }}><div className="card stat-card"><div className="stat-label">Awaiting your review</div><div className="stat-value">{active.length}</div><div className="stat-note">Collector lots nearby</div></div><div className="card stat-card"><div className="stat-label">Pickup today</div><div className="stat-value">04</div><div className="stat-note">Across Pune</div></div><div className="card stat-card"><div className="stat-label">Material received</div><div className="stat-value">1.8 t</div><div className="stat-note">This month</div></div><div className="card stat-card"><div className="stat-label">Authorization</div><div className="stat-value" style={{ fontSize: 19, marginTop: 18 }}>Verified</div><div className="stat-note">MPCB / EPR-4421</div></div></div><div className="grid grid-2"><div className="hero-card"><div className="hero-tag">Operations view</div><h2>Every lot arrives with a story.</h2><p>Review the collector’s material, offer a rate and leave a trace of the handover.</p><Link href="/recycler" className="button button-gold" data-testid="button-review-intake">Review intake <ArrowRight size={15} /> </Link></div><div className="card card-pad"><div className="card-header"><h2 className="section-title">Next pickup</h2><span className="lot-status waiting">Tomorrow</span></div><div className="match-facility"><div className="facility-badge">RS</div><div><div className="lot-name">Ramesh S. · LOT-2407</div><div className="lot-desc"><MapPin size={11} style={{ verticalAlign: 'middle' }} /> Shivaji Nagar · 4.8 km away</div></div></div><div className="divider" /><div className="small-copy">Mixed circuit boards · 8.5 kg · sorted, dry</div><button className="button button-primary" style={{ marginTop: 16, width: '100%' }} onClick={() => { applyChange('LOT-2407', { status: 'Pickup ready' }, 'offer', 'Pickup confirmation · LOT-2407'); showToast('Pickup confirmation queued for LOT-2407'); }} data-testid="button-confirm-next-pickup"><Check size={15} /> Confirm pickup</button></div></div><SyncQueuePanel {...sync} /></main>;
 }
 
 function Prices() {
@@ -140,9 +206,19 @@ function NewLot({ onCreate, showToast }: { onCreate: (lot: MaterialLot) => void;
   return <main className="page"><div className="page-heading"><div><div className="eyebrow">New lot · step 1 of 1</div><h1 className="page-title">Show what you collected.</h1><p className="page-intro">One lot means one clear quote. Use simple details — approximate is okay.</p></div><div className="offline-pill"><span className="offline-dot" />Saved on this phone</div></div><div className="grid grid-2"><div className="card card-pad"><div className="field" style={{ marginBottom: 19 }}><label className="field-label">What material is this?</label><select className="select" value={category} onChange={e => setCategory(e.target.value)} data-testid="select-lot-category"><option>Circuit boards</option><option>Copper wire</option><option>Aluminium</option><option>Batteries</option><option>Screens</option></select></div><div className="grid grid-2" style={{ marginBottom: 19 }}><div><label className="field-label">Approx. weight</label><div style={{ display: 'flex', gap: 7 }}><input className="input" type="number" min="0" value={weight} onChange={e => setWeight(e.target.value)} data-testid="input-lot-weight" /><span className="button button-quiet" style={{ minWidth: 48, padding: 0, cursor: 'default' }}>kg</span></div></div><div><label className="field-label">Condition</label><select className="select" value={condition} onChange={e => setCondition(e.target.value)} data-testid="select-lot-condition"><option>Sorted, dry</option><option>Needs sorting</option><option>Intact</option><option>Mixed / unknown</option></select></div></div><div style={{ marginBottom: 19 }}><label className="field-label">Short note <span style={{ fontWeight: 400 }}>(optional)</span></label><input className="input" value={description} onChange={e => setDescription(e.target.value)} placeholder="For example: from desktop towers" data-testid="input-lot-description" /></div><label className="field-label">Add a picture <span style={{ fontWeight: 400 }}>(optional)</span></label><label className="upload-zone">{image ? <><CheckCircle2 size={25} className="upload-icon" /><strong>{image}</strong><span className="small-copy">Picture selected. Tap to change.</span></> : <><ImagePlus size={28} className="upload-icon" /><strong>Tap to take or choose a photo</strong><span className="small-copy">A photo helps recyclers give a better quote.</span></>}<input type="file" accept="image/*" onChange={e => setImage(e.target.files?.[0]?.name || '')} data-testid="input-lot-photo" /></label></div><div><div className="estimate-card"><div className="section-meta" style={{ color: '#b9cec2' }}>Instant estimate</div><div className="estimate-value">{formatMoney(estimate || 0)}</div><div className="estimate-range">₹{Math.round((Number(weight) || 0) * rate * .85).toLocaleString('en-IN')} – ₹{Math.round((Number(weight) || 0) * rate).toLocaleString('en-IN')} likely range</div><div className="divider" style={{ background: '#436960', margin: '18px 0' }} /><div className="small-copy" style={{ color: '#c3d6c9' }}>Today’s guide rate</div><div style={{ marginTop: 6, fontSize: 15, fontFamily: 'DM Mono', color: '#f7f0df' }}>₹{rate} / kg</div><div className="small-copy" style={{ color: '#c3d6c9', marginTop: 12 }}>A recycler confirms the final rate after seeing the material.</div></div><div className="notice" style={{ marginTop: 15 }}><ShieldCheck size={16} /><span>Keep batteries in a separate bag. Do not burn or break screens.</span></div><button className="button button-gold" style={{ width: '100%', marginTop: 15 }} onClick={handleCreate} data-testid="button-save-lot"><Sparkles size={16} /> Save lot and find recyclers</button></div></div></main>;
 }
 
-function Lots({ lots }: { lots: MaterialLot[] }) {
+function Lots({ lots, onEdit }: { lots: MaterialLot[]; onEdit: (id: string, changes: Partial<MaterialLot>) => void }) {
   const [selected, setSelected] = useState<MaterialLot | null>(null);
-  return <main className="page"><div className="page-heading"><div><div className="eyebrow">Collector records · {lots.length} lots</div><h1 className="page-title">Your lots, clearly tracked.</h1><p className="page-intro">Every saved lot has a simple trail from collection to handover.</p></div><Link href="/new-lot" className="button button-gold" data-testid="button-new-lot-from-list"><Plus size={16} /> New lot</Link></div>{selected ? <div className="card card-pad" style={{ marginBottom: 18 }}><div className="card-header"><div><div className="eyebrow">{selected.id}</div><h2 className="section-title" style={{ fontSize: 23, marginTop: 5 }}>{selected.category}</h2></div><button className="button button-quiet button-small" onClick={() => setSelected(null)} data-testid="button-close-lot-detail"><X size={15} /> Close</button></div><div className="grid grid-2"><div><div className="lot-row"><div className="lot-thumb"><Recycle size={21} /></div><div><div className="lot-name">{selected.description}</div><div className="lot-desc">{selected.weightKg} kg · {selected.condition}</div></div><div className="lot-amount">{formatMoney(selected.estimatedValue)}<br /><StatusPill status={selected.status} /></div></div><div className="divider" /><div className="trace-line"><div className="trace-step"><strong>Lot created</strong><span>{selected.collectedAt} · {selected.collectionLocation}</span></div><div className="trace-step"><strong>Offer matching</strong><span>Shared with verified recyclers nearby</span></div><div className="trace-step"><strong>Handover</strong><span>{selected.status === 'Paid' ? 'Payment received' : 'Waiting for confirmed pickup'}</span></div></div></div><div className="estimate-card"><div className="section-meta" style={{ color: '#b9cec2' }}>Quote view</div><div className="estimate-value">{formatMoney(selected.finalPrice || selected.quotedPrice || selected.estimatedValue)}</div><div className="estimate-range">Estimated / quoted value</div><div className="divider" style={{ background: '#436960' }} /><div className="small-copy" style={{ color: '#c3d6c9' }}>Matched recycler</div><div style={{ color: '#fff8e7', marginTop: 5, fontSize: 13, fontWeight: 800 }}>{selected.recyclerId || 'Finding a match'}</div></div></div></div> : null}<div className="grid" style={{ gap: 10 }}>{lots.map(lot => <button key={lot.id} className="card card-pad" style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid #e4ddce' }} onClick={() => setSelected(lot)} data-testid={`button-open-lot-${lot.id}`}><div className="lot-row" style={{ padding: 0, border: 0 }}><div className={`lot-thumb ${lot.category === 'Copper wire' ? 'amber' : lot.category === 'Screens' ? 'rust' : ''}`}>{lot.category === 'Screens' ? <MonitorSmartphone size={21} /> : lot.category === 'Copper wire' ? <Zap size={21} /> : <Recycle size={21} />}</div><div><div className="lot-name">{lot.category} <span className="mono" style={{ fontSize: 9, color: '#8c9b92', marginLeft: 6 }}>{lot.id}</span></div><div className="lot-desc">{lot.weightKg} kg · {lot.collectedAt} · {lot.collectionLocation}</div></div><div className="lot-amount">{formatMoney(lot.finalPrice || lot.quotedPrice || lot.estimatedValue)}<br /><StatusPill status={lot.status} /></div><ChevronRight size={16} color="#9aab9f" /></div></button>)}</div></main>;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ weightKg: '', condition: '', description: '' });
+  const openLot = (lot: MaterialLot) => { setSelected(lot); setEditing(false); setDraft({ weightKg: String(lot.weightKg), condition: lot.condition, description: lot.description }); };
+  const saveEdit = () => {
+    if (!selected || !Number(draft.weightKg) || Number(draft.weightKg) <= 0) return;
+    const changes = { weightKg: Number(draft.weightKg), condition: draft.condition, description: draft.description.trim() || selected.description };
+    onEdit(selected.id, changes);
+    setSelected({ ...selected, ...changes });
+    setEditing(false);
+  };
+  return <main className="page"><div className="page-heading"><div><div className="eyebrow">Collector records · {lots.length} lots</div><h1 className="page-title">Your lots, clearly tracked.</h1><p className="page-intro">Every saved lot has a simple trail from collection to handover.</p></div><Link href="/new-lot" className="button button-gold" data-testid="button-new-lot-from-list"><Plus size={16} /> New lot</Link></div>{selected ? <div className="card card-pad" style={{ marginBottom: 18 }}><div className="card-header"><div><div className="eyebrow">{selected.id}</div><h2 className="section-title" style={{ fontSize: 23, marginTop: 5 }}>{selected.category}</h2></div><div style={{ display: 'flex', gap: 8 }}><button className="button button-outline button-small" onClick={() => setEditing(value => !value)} data-testid="button-edit-lot">{editing ? 'Cancel edit' : 'Edit saved details'}</button><button className="button button-quiet button-small" onClick={() => setSelected(null)} data-testid="button-close-lot-detail"><X size={15} /> Close</button></div></div><div className="grid grid-2"><div>{editing ? <div className="edit-lot-form"><div><label className="field-label">Approx. weight</label><input className="input" type="number" min="0" value={draft.weightKg} onChange={e => setDraft({ ...draft, weightKg: e.target.value })} data-testid="input-edit-lot-weight" /></div><div><label className="field-label">Condition</label><select className="select" value={draft.condition} onChange={e => setDraft({ ...draft, condition: e.target.value })} data-testid="select-edit-lot-condition"><option>Sorted, dry</option><option>Needs sorting</option><option>Intact</option><option>Mixed / unknown</option></select></div><div><label className="field-label">Short note</label><input className="input" value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} data-testid="input-edit-lot-description" /></div><button className="button button-primary" onClick={saveEdit} data-testid="button-save-lot-edit"><Check size={15} /> Save changes offline</button></div> : <><div className="lot-row"><div className="lot-thumb"><Recycle size={21} /></div><div><div className="lot-name">{selected.description}</div><div className="lot-desc">{selected.weightKg} kg · {selected.condition}</div></div><div className="lot-amount">{formatMoney(selected.estimatedValue)}<br /><StatusPill status={selected.status} /></div></div><div className="divider" /><div className="trace-line"><div className="trace-step"><strong>Lot created</strong><span>{selected.collectedAt} · {selected.collectionLocation}</span></div><div className="trace-step"><strong>Offer matching</strong><span>Shared with verified recyclers nearby</span></div><div className="trace-step"><strong>Handover</strong><span>{selected.status === 'Paid' ? 'Payment received' : 'Waiting for confirmed pickup'}</span></div></div></>}</div><div className="estimate-card"><div className="section-meta" style={{ color: '#b9cec2' }}>Quote view</div><div className="estimate-value">{formatMoney(selected.finalPrice || selected.quotedPrice || selected.estimatedValue)}</div><div className="estimate-range">Estimated / quoted value</div><div className="divider" style={{ background: '#436960' }} /><div className="small-copy" style={{ color: '#c3d6c9' }}>Matched recycler</div><div style={{ color: '#fff8e7', marginTop: 5, fontSize: 13, fontWeight: 800 }}>{selected.recyclerId || 'Finding a match'}</div></div></div></div> : null}<div className="grid" style={{ gap: 10 }}>{lots.map(lot => <button key={lot.id} className="card card-pad" style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid #e4ddce' }} onClick={() => openLot(lot)} data-testid={`button-open-lot-${lot.id}`}><div className="lot-row" style={{ padding: 0, border: 0 }}><div className={`lot-thumb ${lot.category === 'Copper wire' ? 'amber' : lot.category === 'Screens' ? 'rust' : ''}`}>{lot.category === 'Screens' ? <MonitorSmartphone size={21} /> : lot.category === 'Copper wire' ? <Zap size={21} /> : <Recycle size={21} />}</div><div><div className="lot-name">{lot.category} <span className="mono" style={{ fontSize: 9, color: '#8c9b92', marginLeft: 6 }}>{lot.id}</span></div><div className="lot-desc">{lot.weightKg} kg · {lot.collectedAt} · {lot.collectionLocation}</div></div><div className="lot-amount">{formatMoney(lot.finalPrice || lot.quotedPrice || lot.estimatedValue)}<br /><StatusPill status={lot.status} /></div><ChevronRight size={16} color="#9aab9f" /></div></button>)}</div></main>;
 }
 
 function Earnings({ transactions }: { transactions: Transaction[] }) {
@@ -156,18 +232,95 @@ function Safety() {
   return <main className="page"><div className="page-heading"><div><div className="eyebrow">Field guide · keep this handy</div><h1 className="page-title">Work safe. Go home safe.</h1><p className="page-intro">Four simple reminders for sorting e-waste. Tap the sound button to hear the guide.</p></div><div className="offline-pill"><ShieldCheck size={14} /> Works offline</div></div><div className="grid grid-2">{safetyTips.map(tip => <div className="card safety-card" key={tip.title}><div className="safety-picto"><IconFor name={tip.pictogram} /></div>{tip.audioAvailable && <button className="audio-button" onClick={() => play(tip)} aria-label={`Hear ${tip.title} guidance`} data-testid={`button-audio-${tip.pictogram}`}><Headphones size={15} /></button>}<div className="risk-label">{tip.risk}</div><h3>{tip.title}</h3><p>{tip.copy}</p>{playing === tip.title && <div className="small-copy" style={{ color: '#b15c40', marginTop: 9 }}>Playing guidance…</div>}</div>)}</div><div className="card card-pad" style={{ marginTop: 18, background: '#e9f0e3', borderColor: '#d6e3ce' }}><div className="card-header"><h2 className="section-title">Before you hand over</h2><span className="section-meta">quick check</span></div><div className="grid grid-2"><div className="notice" style={{ background: '#f7f8ee' }}><CheckCircle2 size={16} /><span>Battery bag is separate and labelled.</span></div><div className="notice" style={{ background: '#f7f8ee' }}><CheckCircle2 size={16} /><span>Lot weight and quote are written down.</span></div><div className="notice" style={{ background: '#f7f8ee' }}><CheckCircle2 size={16} /><span>Recycler authorization is verified.</span></div><div className="notice" style={{ background: '#f7f8ee' }}><CheckCircle2 size={16} /><span>You have your handover reference.</span></div></div></div></main>;
 }
 
-function RecyclerQueue({ lots, setLots, showToast }: { lots: MaterialLot[]; setLots: React.Dispatch<React.SetStateAction<MaterialLot[]>>; showToast: (text: string) => void }) {
+function RecyclerQueue({ lots, applyChange, recordHandover, showToast, sync }: { lots: MaterialLot[]; applyChange: (id: string, changes: Partial<MaterialLot>, type: SyncActionType, label?: string) => void; recordHandover: (lot: MaterialLot) => void; showToast: (text: string) => void; sync: SyncPanelProps }) {
   const [filter, setFilter] = useState('All lots'); const queue = lots.filter(l => l.status !== 'Paid'); const filtered = filter === 'All lots' ? queue : queue.filter(l => l.status === filter);
-  const accept = (id: string) => { setLots(prev => prev.map(l => l.id === id ? { ...l, status: 'Pickup ready', quotedPrice: l.estimatedValue - 75 } : l)); showToast(`Offer sent for ${id}`); };
-  const handover = (id: string) => { setLots(prev => prev.map(l => l.id === id ? { ...l, status: 'Paid', finalPrice: l.quotedPrice || l.estimatedValue - 75 } : l)); showToast(`Handover confirmed for ${id}`); };
-  return <main className="page"><div className="page-heading"><div><div className="eyebrow">Recycler operations · Pune area</div><h1 className="page-title">Intake queue.</h1><p className="page-intro">Review nearby lots, confirm a rate and make a traceable handover.</p></div><div className="offline-pill"><span className="offline-dot" />Queue synced 2 min ago</div></div><div className="filter-row"><button className={`button button-small ${filter === 'All lots' ? 'button-primary' : 'button-quiet'}`} onClick={() => setFilter('All lots')} data-testid="button-filter-all-lots">All lots ({queue.length})</button><button className={`button button-small ${filter === 'Matching' ? 'button-primary' : 'button-quiet'}`} onClick={() => setFilter('Matching')} data-testid="button-filter-matching">Needs review</button><button className={`button button-small ${filter === 'Pickup ready' ? 'button-primary' : 'button-quiet'}`} onClick={() => setFilter('Pickup ready')} data-testid="button-filter-pickup">Pickup ready</button></div><div className="grid" style={{ gap: 12 }}>{filtered.map(lot => <div className="card card-pad queue-card" key={lot.id} data-testid={`card-queue-${lot.id}`}><div><div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}><div className="lot-thumb"><Recycle size={20} /></div><div><div className="lot-name">{lot.category} <span className="mono" style={{ color: '#82958a', fontSize: 10 }}>{lot.id}</span></div><div className="lot-desc">{lot.weightKg} kg · {lot.condition} · {lot.collectionLocation}</div></div><div style={{ marginLeft: 'auto' }}><StatusPill status={lot.status} /></div></div><div className="grid grid-3"><div><div className="section-meta">Collector estimate</div><div className="lot-name" style={{ marginTop: 6 }}>{formatMoney(lot.estimatedValue)}</div></div><div><div className="section-meta">Your offered rate</div><div className="lot-name" style={{ marginTop: 6 }}>{lot.quotedPrice ? formatMoney(lot.quotedPrice) : 'Not sent'}</div></div><div><div className="section-meta">Pickup window</div><div className="lot-name" style={{ marginTop: 6 }}>Today · 3–6 PM</div></div></div></div><div style={{ minWidth: 140 }}>{lot.status === 'Matching' ? <button className="button button-primary" style={{ width: '100%' }} onClick={() => accept(lot.id)} data-testid={`button-offer-${lot.id}`}><HandCoins size={15} /> Send offer</button> : <button className="button button-gold" style={{ width: '100%' }} onClick={() => handover(lot.id)} data-testid={`button-handover-${lot.id}`}><Check size={15} /> Confirm handover</button>}<button className="button button-outline button-small" style={{ width: '100%', marginTop: 8 }} onClick={() => showToast(`Calling collector for ${lot.id}`)} data-testid={`button-call-${lot.id}`}><Phone size={14} /> Call collector</button></div></div>)}{filtered.length === 0 && <div className="card empty-state"><PackageCheck size={30} /><h3>Queue is clear</h3><p>New matched lots will appear here when collectors share them.</p></div>}</div><div className="card card-pad" style={{ marginTop: 18 }}><div className="card-header"><h2 className="section-title">Your authorization</h2><span className="auth-ok"><BadgeCheck size={14} /> Verified</span></div><div className="grid grid-3"><div><div className="section-meta">Facility</div><div className="lot-name" style={{ marginTop: 7 }}>GreenLoop Recovery</div></div><div><div className="section-meta">Authorization ID</div><div className="lot-name mono" style={{ marginTop: 7 }}>MPCB / EPR-4421</div></div><div><div className="section-meta">Accepted materials</div><div className="lot-name" style={{ marginTop: 7 }}>PCB · wire · aluminium</div></div></div></div></main>;
+  const accept = (lot: MaterialLot) => { applyChange(lot.id, { status: 'Pickup ready', quotedPrice: lot.estimatedValue - 75 }, 'offer'); showToast(`Offer saved offline for ${lot.id}`); };
+  const handover = (lot: MaterialLot) => { const finalPrice = lot.quotedPrice || lot.estimatedValue - 75; applyChange(lot.id, { status: 'Paid', finalPrice }, 'handover'); recordHandover({ ...lot, status: 'Paid', finalPrice }); showToast(`Handover queued for ${lot.id}`); };
+  return <main className="page"><div className="page-heading"><div><div className="eyebrow">Recycler operations · Pune area</div><h1 className="page-title">Intake queue.</h1><p className="page-intro">Review nearby lots, confirm a rate and make a traceable handover.</p></div><div className="offline-pill"><span className="offline-dot" />Queue is {sync.networkAvailable ? 'ready to sync' : 'saved offline'}</div></div><div className="filter-row"><button className={`button button-small ${filter === 'All lots' ? 'button-primary' : 'button-quiet'}`} onClick={() => setFilter('All lots')} data-testid="button-filter-all-lots">All lots ({queue.length})</button><button className={`button button-small ${filter === 'Matching' ? 'button-primary' : 'button-quiet'}`} onClick={() => setFilter('Matching')} data-testid="button-filter-matching">Needs review</button><button className={`button button-small ${filter === 'Pickup ready' ? 'button-primary' : 'button-quiet'}`} onClick={() => setFilter('Pickup ready')} data-testid="button-filter-pickup">Pickup ready</button></div><div className="grid" style={{ gap: 12 }}>{filtered.map(lot => <div className="card card-pad queue-card" key={lot.id} data-testid={`card-queue-${lot.id}`}><div><div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}><div className="lot-thumb"><Recycle size={20} /></div><div><div className="lot-name">{lot.category} <span className="mono" style={{ color: '#82958a', fontSize: 10 }}>{lot.id}</span></div><div className="lot-desc">{lot.weightKg} kg · {lot.condition} · {lot.collectionLocation}</div></div><div style={{ marginLeft: 'auto' }}><StatusPill status={lot.status} /></div></div><div className="grid grid-3"><div><div className="section-meta">Collector estimate</div><div className="lot-name" style={{ marginTop: 6 }}>{formatMoney(lot.estimatedValue)}</div></div><div><div className="section-meta">Your offered rate</div><div className="lot-name" style={{ marginTop: 6 }}>{lot.quotedPrice ? formatMoney(lot.quotedPrice) : 'Not sent'}</div></div><div><div className="section-meta">Pickup window</div><div className="lot-name" style={{ marginTop: 6 }}>Today · 3–6 PM</div></div></div></div><div style={{ minWidth: 140 }}>{lot.status === 'Matching' ? <button className="button button-primary" style={{ width: '100%' }} onClick={() => accept(lot)} data-testid={`button-offer-${lot.id}`}><HandCoins size={15} /> Send offer</button> : <button className="button button-gold" style={{ width: '100%' }} onClick={() => handover(lot)} data-testid={`button-handover-${lot.id}`}><Check size={15} /> Confirm handover</button>}<button className="button button-outline button-small" style={{ width: '100%', marginTop: 8 }} onClick={() => showToast(`Calling collector for ${lot.id}`)} data-testid={`button-call-${lot.id}`}><Phone size={14} /> Call collector</button></div></div>)}{filtered.length === 0 && <div className="card empty-state"><PackageCheck size={30} /><h3>Queue is clear</h3><p>New matched lots will appear here when collectors share them.</p></div>}</div><div className="card card-pad" style={{ marginTop: 18 }}><div className="card-header"><h2 className="section-title">Your authorization</h2><span className="auth-ok"><BadgeCheck size={14} /> Verified</span></div><div className="grid grid-3"><div><div className="section-meta">Facility</div><div className="lot-name" style={{ marginTop: 7 }}>GreenLoop Recovery</div></div><div><div className="section-meta">Authorization ID</div><div className="lot-name mono" style={{ marginTop: 7 }}>MPCB / EPR-4421</div></div><div><div className="section-meta">Accepted materials</div><div className="lot-name" style={{ marginTop: 7 }}>PCB · wire · aluminium</div></div></div></div><SyncQueuePanel {...sync} /></main>;
 }
 
 function AppContent() {
-  const [role, setRole] = useState<Role>('collector'); const [language, setLanguage] = useState<Language>('English'); const [lots, setLots] = useState(initialLots); const [transactions] = useState(initialTransactions); const [toast, setToast] = useState('');
+  const [role, setRole] = useState<Role>('collector');
+  const [language, setLanguage] = useState<Language>('English');
+  const [lots, setLots] = useState<MaterialLot[]>(() => readLocal(storageKeys.lots, initialLots));
+  const [transactions, setTransactions] = useState<Transaction[]>(() => readLocal(storageKeys.transactions, initialTransactions));
+  const [syncQueue, setSyncQueue] = useState<SyncAction[]>(() => readLocal(storageKeys.syncQueue, []));
+  const [lastSyncedAt, setLastSyncedAt] = useState(() => readLocal(storageKeys.lastSyncedAt, '25 Jun 2024, 10:30'));
+  const [browserOnline, setBrowserOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine);
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [toast, setToast] = useState('');
+  const networkAvailable = browserOnline && !offlineMode;
+
+  useEffect(() => {
+    const onOnline = () => setBrowserOnline(true);
+    const onOffline = () => setBrowserOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, []);
+  useEffect(() => { window.localStorage.setItem(storageKeys.lots, JSON.stringify(lots)); }, [lots]);
+  useEffect(() => { window.localStorage.setItem(storageKeys.transactions, JSON.stringify(transactions)); }, [transactions]);
+  useEffect(() => { window.localStorage.setItem(storageKeys.syncQueue, JSON.stringify(syncQueue)); }, [syncQueue]);
+  useEffect(() => { window.localStorage.setItem(storageKeys.lastSyncedAt, JSON.stringify(lastSyncedAt)); }, [lastSyncedAt]);
+
   const showToast = (text: string) => { setToast(text); window.setTimeout(() => setToast(''), 2600); };
-  const createLot = (lot: MaterialLot) => setLots(prev => [lot, ...prev]);
-  return <Shell role={role} setRole={setRole} language={language} setLanguage={setLanguage}><Switch><Route path="/" component={() => <Home role={role} lots={lots} setLots={setLots} showToast={showToast} />} /><Route path="/prices" component={Prices} /><Route path="/new-lot" component={() => <NewLot onCreate={createLot} showToast={showToast} />} /><Route path="/lots" component={() => <Lots lots={lots} />} /><Route path="/earnings" component={() => <Earnings transactions={transactions} />} /><Route path="/safety" component={Safety} /><Route path="/recycler" component={() => <RecyclerQueue lots={lots} setLots={setLots} showToast={showToast} />} /><Route component={NotFound} /></Switch>{toast && <div className="toast" role="status" data-testid="status-toast"><CheckCircle2 size={15} style={{ verticalAlign: 'middle', marginRight: 7, color: '#f2b84b' }} />{toast}</div>}</Shell>;
+  const enqueue = (action: SyncAction) => setSyncQueue(prev => [...prev, action]);
+  const applyChange = (id: string, changes: Partial<MaterialLot>, type: SyncActionType, label?: string) => {
+    const current = lots.find(lot => lot.id === id);
+    if (!current) return;
+    const baseRevision = current.revision ?? 1;
+    const revision = baseRevision + 1;
+    const now = syncTime();
+    setLots(prev => prev.map(lot => lot.id === id ? { ...lot, ...changes, revision, syncState: 'pending' } : lot));
+    setSyncQueue(prev => {
+      const next = prev.map(action => action.lotId === id && action.status === 'pending' && action.type === 'update' && type !== 'create' && action.sourceRole !== role
+        ? { ...action, status: 'conflict' as const, conflictMessage: 'A shared update arrived before this edit. Choose which copy to keep.' }
+        : action);
+      return [...next, { id: `${id}-${type}-${Date.now()}`, type, lotId: id, label: label || actionLabel(type, id), queuedAt: now, baseRevision, sourceRole: role, status: 'pending', changes }];
+    });
+  };
+  const createLot = (lot: MaterialLot) => {
+    const savedLot = { ...lot, revision: 1, syncState: 'pending' as const };
+    const now = syncTime();
+    setLots(prev => [savedLot, ...prev]);
+    enqueue({ id: `${lot.id}-create-${Date.now()}`, type: 'create', lotId: lot.id, label: actionLabel('create', lot.id), queuedAt: now, baseRevision: 0, sourceRole: role, status: 'pending', changes: savedLot });
+  };
+  const recordHandover = (lot: MaterialLot) => {
+    setTransactions(prev => {
+      const existing = prev.find(transaction => transaction.lotId === lot.id);
+      if (existing) return prev.map(transaction => transaction.lotId === lot.id ? { ...transaction, finalPrice: lot.finalPrice, paymentStatus: 'Pending', transactionStatus: 'Pending sync' } : transaction);
+      return [{ lotId: lot.id, collectorId: 'COL-1042', recyclerId: lot.recyclerId || 'GreenLoop Recovery', quotedPrice: lot.quotedPrice || lot.estimatedValue - 75, finalPrice: lot.finalPrice, paymentStatus: 'Pending', transactionStatus: 'Pending sync', handoverReference: `HB-OFFLINE-${lot.id.replace('LOT-', '')}`, timestamp: `Queued ${syncTime()}`, gpsLabel: lot.collectionLocation }, ...prev];
+    });
+  };
+  const syncNow = () => {
+    if (!networkAvailable) { showToast('Still offline. Changes remain safely on this phone.'); return; }
+    const pending = syncQueue.filter(action => action.status === 'pending');
+    if (!pending.length) { showToast('Everything is already synchronized.'); return; }
+    const now = syncTime();
+    const pendingLots = new Set(pending.map(action => action.lotId));
+    setSyncQueue(prev => prev.map(action => action.status === 'pending' ? { ...action, status: 'synced' as const, syncedAt: now } : action));
+    setLots(prev => prev.map(lot => pendingLots.has(lot.id) ? { ...lot, syncState: 'synced', lastSyncedAt: now } : lot));
+    setTransactions(prev => prev.map(transaction => transaction.transactionStatus === 'Pending sync' ? { ...transaction, paymentStatus: 'Paid', transactionStatus: 'Completed', timestamp: `${transaction.timestamp.replace('Queued ', '')} · synced ${now}` } : transaction));
+    setLastSyncedAt(now);
+    showToast(`${pending.length} ${pending.length === 1 ? 'change' : 'changes'} synchronized for collector and recycler`);
+  };
+  const resolveConflict = (actionId: string, resolution: 'local' | 'shared') => {
+    const action = syncQueue.find(item => item.id === actionId);
+    if (!action || action.status !== 'conflict') return;
+    const now = syncTime();
+    if (resolution === 'local') {
+      setLots(prev => prev.map(lot => lot.id === action.lotId ? { ...lot, ...action.changes, revision: (lot.revision ?? 1) + 1, syncState: 'pending' } : lot));
+      setSyncQueue(prev => prev.map(item => item.id === actionId ? { ...item, status: 'pending' as const, baseRevision: (lots.find(lot => lot.id === action.lotId)?.revision ?? 1) + 1, queuedAt: now, sourceRole: role, conflictMessage: undefined } : item));
+      showToast(`Kept your local copy for ${action.lotId}; it is queued again`);
+    } else {
+      setSyncQueue(prev => prev.map(item => item.id === actionId ? { ...item, status: 'synced' as const, syncedAt: now, conflictMessage: undefined } : item));
+      setLots(prev => prev.map(lot => lot.id === action.lotId ? { ...lot, syncState: 'synced', lastSyncedAt: now } : lot));
+      setLastSyncedAt(now);
+      showToast(`Kept the shared copy for ${action.lotId}`);
+    }
+  };
+  const sync: SyncPanelProps = { queue: syncQueue, lastSyncedAt, networkAvailable, offlineMode, onToggleOffline: () => setOfflineMode(value => !value), onSync: syncNow, onResolveConflict: resolveConflict };
+  return <Shell role={role} setRole={setRole} language={language} setLanguage={setLanguage} queue={syncQueue} networkAvailable={networkAvailable}><Switch><Route path="/" component={() => <Home role={role} lots={lots} applyChange={applyChange} showToast={showToast} sync={sync} />} /><Route path="/prices" component={Prices} /><Route path="/new-lot" component={() => <NewLot onCreate={createLot} showToast={showToast} />} /><Route path="/lots" component={() => <Lots lots={lots} onEdit={(id, changes) => { applyChange(id, changes, 'update'); showToast(`Changes saved locally for ${id}`); }} />} /><Route path="/earnings" component={() => <Earnings transactions={transactions} />} /><Route path="/safety" component={Safety} /><Route path="/recycler" component={() => <RecyclerQueue lots={lots} applyChange={applyChange} recordHandover={recordHandover} showToast={showToast} sync={sync} />} /><Route component={NotFound} /></Switch>{toast && <div className="toast" role="status" data-testid="status-toast"><CheckCircle2 size={15} style={{ verticalAlign: 'middle', marginRight: 7, color: '#f2b84b' }} />{toast}</div>}</Shell>;
 }
 
 function App() {

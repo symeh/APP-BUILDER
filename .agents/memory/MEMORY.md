@@ -1,0 +1,1 @@
+- [Offline sync model](offline-sync.md) — local changes are queued first, then explicitly synchronized with visible conflict resolution.
