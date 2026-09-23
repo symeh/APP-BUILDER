@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "E-waste Bridge"
+description = "A low-literacy, offline-tolerant web app prototype connecting informal e-waste collectors with authorized recyclers through fair price discovery, digital lots, traceable handovers, safety guidance, and an earnings ledger."
+version = "1.0.0"
+id = "artifacts/e-waste-bridge"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23676
+
+[services.development]
+run = "pnpm --filter @workspace/e-waste-bridge run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/e-waste-bridge", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/e-waste-bridge/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23676"
+BASE_PATH = "/"
