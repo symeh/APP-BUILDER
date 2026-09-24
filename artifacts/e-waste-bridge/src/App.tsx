@@ -142,6 +142,203 @@ function SyncQueuePanel({ queue, lastSyncedAt, networkAvailable, offlineMode, on
   </div>;
 }
 
+function LoginPage({ onSelectRole }: { onSelectRole: (role: Role) => void }) {
+  return (
+    <main
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+        background: '#f7f4ec',
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: 760,
+          textAlign: 'center',
+        }}
+      >
+        <div
+          className="brand-mark"
+          style={{
+            width: 58,
+            height: 58,
+            margin: '0 auto 18px',
+            fontSize: 18,
+          }}
+        >
+          e•w
+        </div>
+
+        <div className="eyebrow">E-waste Bridge</div>
+
+        <h1
+          className="page-title"
+          style={{
+            fontSize: 38,
+            marginTop: 8,
+          }}
+        >
+          Choose how you want to continue
+        </h1>
+
+        <p
+          className="page-intro"
+          style={{
+            maxWidth: 520,
+            margin: '10px auto 30px',
+          }}
+        >
+          Select your role to enter the E-waste Bridge workspace.
+        </p>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: 18,
+            textAlign: 'left',
+          }}
+        >
+          {/* Collector */}
+          <button
+            className="card card-pad"
+            style={{
+              cursor: 'pointer',
+              border: '1px solid #e4ddce',
+              background: '#fffdf7',
+              textAlign: 'left',
+            }}
+            onClick={() => onSelectRole('collector')}
+            data-testid="button-login-collector"
+          >
+            <div
+              className="quick-icon"
+              style={{
+                width: 48,
+                height: 48,
+                marginBottom: 18,
+              }}
+            >
+              <Recycle size={22} />
+            </div>
+
+            <div className="section-meta">COLLECTOR</div>
+
+            <h2
+              className="section-title"
+              style={{
+                fontSize: 24,
+                marginTop: 7,
+              }}
+            >
+              I collect e-waste
+            </h2>
+
+            <p
+              className="small-copy"
+              style={{
+                fontSize: 12,
+                lineHeight: 1.6,
+                marginTop: 8,
+              }}
+            >
+              Create lots, check prices, find recyclers and track your
+              handovers and earnings.
+            </p>
+
+            <div
+              className="button button-primary"
+              style={{
+                marginTop: 20,
+                width: '100%',
+                justifyContent: 'center',
+              }}
+            >
+              Continue as Collector
+              <ArrowRight size={15} />
+            </div>
+          </button>
+
+          {/* Recycler */}
+          <button
+            className="card card-pad"
+            style={{
+              cursor: 'pointer',
+              border: '1px solid #e4ddce',
+              background: '#fffdf7',
+              textAlign: 'left',
+            }}
+            onClick={() => onSelectRole('recycler')}
+            data-testid="button-login-recycler"
+          >
+            <div
+              className="quick-icon"
+              style={{
+                width: 48,
+                height: 48,
+                marginBottom: 18,
+                background: '#e4e9db',
+                color: '#597649',
+              }}
+            >
+              <PackageCheck size={22} />
+            </div>
+
+            <div className="section-meta">RECYCLER</div>
+
+            <h2
+              className="section-title"
+              style={{
+                fontSize: 24,
+                marginTop: 7,
+              }}
+            >
+              I recycle e-waste
+            </h2>
+
+            <p
+              className="small-copy"
+              style={{
+                fontSize: 12,
+                lineHeight: 1.6,
+                marginTop: 8,
+              }}
+            >
+              Review incoming lots, send offers, confirm pickups and record
+              traceable handovers.
+            </p>
+
+            <div
+              className="button button-gold"
+              style={{
+                marginTop: 20,
+                width: '100%',
+                justifyContent: 'center',
+              }}
+            >
+              Continue as Recycler
+              <ArrowRight size={15} />
+            </div>
+          </button>
+        </div>
+
+        <div
+          className="small-copy"
+          style={{
+            marginTop: 24,
+          }}
+        >
+          Demo access · No account or password required
+        </div>
+      </div>
+    </main>
+  );
+}
+
 function Navigation({ role }: { role: Role }) {
   const [location] = useLocation();
   const items = role === 'collector'
@@ -156,17 +353,56 @@ function Navigation({ role }: { role: Role }) {
   <nav className="mobile-nav">{items.slice(0, 4).map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={location === href ? 'active' : ''} data-testid={`link-mobile-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon /><span>{label}</span></Link>)}</nav></>;
 }
 
-function Topbar({ role, setRole, language, setLanguage, queue, networkAvailable }: { role: Role; setRole: (r: Role) => void; language: Language; setLanguage: (l: Language) => void; queue: SyncAction[]; networkAvailable: boolean }) {
+function Topbar({
+  language,
+  setLanguage,
+  queue,
+  networkAvailable
+}: {
+  language: Language;
+  setLanguage: (l: Language) => void;
+  queue: SyncAction[];
+  networkAvailable: boolean;
+}) {
   const activeCount = queue.filter(action => action.status !== 'synced').length;
-  return <header className="topbar"><div className="top-context"><Leaf size={16} /> Practical tools for a fair handover <span className={`offline-pill ${networkAvailable ? 'connected' : ''}`}><span className="offline-dot" />{networkAvailable ? 'Sync ready' : 'Offline mode'}{activeCount > 0 ? ` · ${activeCount} pending` : ''}</span></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+  return <header className="topbar"><div className="top-context"><Leaf size={16} /> Practical tools for a fair handover <span className={`offline-pill ${networkAvailable ? 'connected' : ''}`}><span className="offline-dot" />{networkAvailable ? 'Sync ready' : 'Offline mode'}{activeCount > 0 ? ` · ${activeCount} pending` : ''}</span></div>
+  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
     <select className="select" style={{ width: 104, height: 34, padding: '0 8px', fontSize: 11 }} value={language} onChange={e => setLanguage(e.target.value as Language)} data-testid="select-language"><option>English</option><option>हिंदी</option><option>मराठी</option></select>
-    <div className="role-toggle"><button className={`role-button ${role === 'collector' ? 'active' : ''}`} onClick={() => setRole('collector')} data-testid="button-role-collector">Collector</button><button className={`role-button ${role === 'recycler' ? 'active' : ''}`} onClick={() => setRole('recycler')} data-testid="button-role-recycler">Recycler</button></div>
     <button className="button button-quiet button-small" aria-label="Notifications" data-testid="button-notifications"><Bell size={15} /></button>
   </div></header>;
 }
 
-function Shell({ children, role, setRole, language, setLanguage, queue, networkAvailable }: { children: React.ReactNode; role: Role; setRole: (r: Role) => void; language: Language; setLanguage: (l: Language) => void; queue: SyncAction[]; networkAvailable: boolean }) {
-  return <div className="app-shell"><Navigation role={role} /><div className="main-column"><Topbar role={role} setRole={setRole} language={language} setLanguage={setLanguage} queue={queue} networkAvailable={networkAvailable} />{children}</div></div>;
+function Shell({
+  children,
+  role,
+  language,
+  setLanguage,
+  queue,
+  networkAvailable
+}: {
+  children: React.ReactNode;
+  role: Role;
+  language: Language;
+  setLanguage: (l: Language) => void;
+  queue: SyncAction[];
+  networkAvailable: boolean;
+}) {
+  return (
+    <div className="app-shell">
+      <Navigation role={role} />
+
+      <div className="main-column">
+        <Topbar
+          language={language}
+          setLanguage={setLanguage}
+          queue={queue}
+          networkAvailable={networkAvailable}
+        />
+
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function Home({ role, lots, applyChange, showToast, sync }: { role: Role; lots: MaterialLot[]; applyChange: (id: string, changes: Partial<MaterialLot>, type: SyncActionType, label?: string) => void; showToast: (text: string) => void; sync: SyncPanelProps }) {
@@ -240,7 +476,7 @@ function RecyclerQueue({ lots, applyChange, recordHandover, showToast, sync }: {
 }
 
 function AppContent() {
-  const [role, setRole] = useState<Role>('collector');
+  const [role, setRole] = useState<Role | null>(null);
   const [language, setLanguage] = useState<Language>('English');
   const [lots, setLots] = useState<MaterialLot[]>(() => readLocal(storageKeys.lots, initialLots));
   const [transactions, setTransactions] = useState<Transaction[]>(() => readLocal(storageKeys.transactions, initialTransactions));
@@ -276,14 +512,14 @@ function AppContent() {
       const next = prev.map(action => action.lotId === id && action.status === 'pending' && action.type === 'update' && type !== 'create' && action.sourceRole !== role
         ? { ...action, status: 'conflict' as const, conflictMessage: 'A shared update arrived before this edit. Choose which copy to keep.' }
         : action);
-      return [...next, { id: `${id}-${type}-${Date.now()}`, type, lotId: id, label: label || actionLabel(type, id), queuedAt: now, baseRevision, sourceRole: role, status: 'pending', changes }];
+      return [...next, { id: `${id}-${type}-${Date.now()}`, type, lotId: id, label: label || actionLabel(type, id), queuedAt: now, baseRevision, sourceRole: role!, status: 'pending', changes }];
     });
   };
   const createLot = (lot: MaterialLot) => {
     const savedLot = { ...lot, revision: 1, syncState: 'pending' as const };
     const now = syncTime();
     setLots(prev => [savedLot, ...prev]);
-    enqueue({ id: `${lot.id}-create-${Date.now()}`, type: 'create', lotId: lot.id, label: actionLabel('create', lot.id), queuedAt: now, baseRevision: 0, sourceRole: role, status: 'pending', changes: savedLot });
+    enqueue({ id: `${lot.id}-create-${Date.now()}`, type: 'create', lotId: lot.id, label: actionLabel('create', lot.id), queuedAt: now, baseRevision: 0, sourceRole: role!, status: 'pending', changes: savedLot });
   };
   const recordHandover = (lot: MaterialLot) => {
     setTransactions(prev => {
@@ -310,7 +546,7 @@ function AppContent() {
     const now = syncTime();
     if (resolution === 'local') {
       setLots(prev => prev.map(lot => lot.id === action.lotId ? { ...lot, ...action.changes, revision: (lot.revision ?? 1) + 1, syncState: 'pending' } : lot));
-      setSyncQueue(prev => prev.map(item => item.id === actionId ? { ...item, status: 'pending' as const, baseRevision: (lots.find(lot => lot.id === action.lotId)?.revision ?? 1) + 1, queuedAt: now, sourceRole: role, conflictMessage: undefined } : item));
+      setSyncQueue(prev => prev.map(item => item.id === actionId ? { ...item, status: 'pending' as const, baseRevision: (lots.find(lot => lot.id === action.lotId)?.revision ?? 1) + 1, queuedAt: now, sourceRole: role!, conflictMessage: undefined } : item));
       showToast(`Kept your local copy for ${action.lotId}; it is queued again`);
     } else {
       setSyncQueue(prev => prev.map(item => item.id === actionId ? { ...item, status: 'synced' as const, syncedAt: now, conflictMessage: undefined } : item));
@@ -320,8 +556,103 @@ function AppContent() {
     }
   };
   const sync: SyncPanelProps = { queue: syncQueue, lastSyncedAt, networkAvailable, offlineMode, onToggleOffline: () => setOfflineMode(value => !value), onSync: syncNow, onResolveConflict: resolveConflict };
-  return <Shell role={role} setRole={setRole} language={language} setLanguage={setLanguage} queue={syncQueue} networkAvailable={networkAvailable}><Switch><Route path="/" component={() => <Home role={role} lots={lots} applyChange={applyChange} showToast={showToast} sync={sync} />} /><Route path="/prices" component={Prices} /><Route path="/new-lot" component={() => <NewLot onCreate={createLot} showToast={showToast} />} /><Route path="/lots" component={() => <Lots lots={lots} onEdit={(id, changes) => { applyChange(id, changes, 'update'); showToast(`Changes saved locally for ${id}`); }} />} /><Route path="/earnings" component={() => <Earnings transactions={transactions} />} /><Route path="/safety" component={Safety} /><Route path="/recycler" component={() => <RecyclerQueue lots={lots} applyChange={applyChange} recordHandover={recordHandover} showToast={showToast} sync={sync} />} /><Route component={NotFound} /></Switch>{toast && <div className="toast" role="status" data-testid="status-toast"><CheckCircle2 size={15} style={{ verticalAlign: 'middle', marginRight: 7, color: '#f2b84b' }} />{toast}</div>}</Shell>;
+  if (!role) {
+    return <LoginPage onSelectRole={setRole} />;
+  }
+
+  return (
+    <Shell
+      role={role}
+      language={language}
+      setLanguage={setLanguage}
+      queue={syncQueue}
+      networkAvailable={networkAvailable}
+    >
+      <Switch>
+        <Route
+          path="/"
+          component={() => (
+            <Home
+              role={role}
+              lots={lots}
+              applyChange={applyChange}
+              showToast={showToast}
+              sync={sync}
+            />
+          )}
+        />
+
+        <Route path="/prices" component={Prices} />
+
+        <Route
+          path="/new-lot"
+          component={() => (
+            <NewLot
+              onCreate={createLot}
+              showToast={showToast}
+            />
+          )}
+        />
+
+        <Route
+          path="/lots"
+          component={() => (
+            <Lots
+              lots={lots}
+              onEdit={(id, changes) => {
+                applyChange(id, changes, 'update');
+                showToast(`Changes saved locally for ${id}`);
+              }}
+            />
+          )}
+        />
+
+        <Route
+          path="/earnings"
+          component={() => (
+            <Earnings transactions={transactions} />
+          )}
+        />
+
+        <Route path="/safety" component={Safety} />
+
+        <Route
+          path="/recycler"
+          component={() => (
+            <RecyclerQueue
+              lots={lots}
+              applyChange={applyChange}
+              recordHandover={recordHandover}
+              showToast={showToast}
+              sync={sync}
+            />
+          )}
+        />
+
+        <Route component={NotFound} />
+      </Switch>
+
+      {toast && (
+        <div
+          className="toast"
+          role="status"
+          data-testid="status-toast"
+        >
+          <CheckCircle2
+            size={15}
+            style={{
+              verticalAlign: 'middle',
+              marginRight: 7,
+              color: '#f2b84b'
+            }}
+          />
+          {toast}
+        </div>
+      )}
+    </Shell>
+  );
 }
+
 
 function App() {
   return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><ErrorBoundary><AppContent /></ErrorBoundary></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
