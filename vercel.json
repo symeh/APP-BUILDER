@@ -1,0 +1,10 @@
+{
+  "buildCommand": "pnpm --filter @workspace/e-waste-bridge run build",
+  "outputDirectory": "artifacts/e-waste-bridge/dist/public",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "functions": {
+    "api/index.ts": {
+      "runtime": "nodejs22.x"
+    }
+  }
+}
