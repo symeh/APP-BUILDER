@@ -84,6 +84,38 @@ const recyclers: Recycler[] = [
   { name: 'GreenLoop Recovery', facilityLocation: 'Bhosari, Pune', materialsAccepted: ['PCB', 'Wire', 'Aluminium'], authorizationId: 'MPCB / EPR-4421', authorizationStatus: 'Verified', contact: '+91 98220 18442', offeredRates: '₹275/kg PCB', pickupAvailability: 'Tomorrow, 9–12', serviceArea: 'Pune north', distanceKm: 4.8 },
   { name: 'Sahyadri E-Cycle', facilityLocation: 'Kondhwa, Pune', materialsAccepted: ['Batteries', 'Screens', 'Wire'], authorizationId: 'MPCB / EPR-1937', authorizationStatus: 'Verified', contact: '+91 90110 66208', offeredRates: '₹490/kg wire', pickupAvailability: 'Today, 3–6', serviceArea: 'Pune city', distanceKm: 8.2 },
 ];
+function getMatchedRecyclers(lot: MaterialLot): Recycler[] {
+  const material =
+    lot.category === 'Circuit boards'
+      ? 'PCB'
+      : lot.category === 'Copper wire'
+        ? 'Wire'
+        : lot.category === 'Aluminium'
+          ? 'Aluminium'
+          : lot.category === 'Batteries'
+            ? 'Batteries'
+            : 'Screens';
+
+  return recyclers.filter(recycler => {
+    if (recycler.authorizationStatus !== 'Verified') {
+      return false;
+    }
+
+    if (!recycler.materialsAccepted.includes(material)) {
+      return false;
+    }
+
+    if (!lot.collectionLocation.toLowerCase().includes('pune')) {
+      return false;
+    }
+
+    if (!recycler.serviceArea.toLowerCase().includes('pune')) {
+      return false;
+    }
+
+    return true;
+  });
+}
 const safetyTips: SafetyTip[] = [
   { title: 'Batteries', copy: 'Keep batteries separate. Cover loose terminals with tape. Do not crush or throw into fire.', risk: 'Fire and chemical risk', pictogram: 'battery', audioAvailable: true },
   { title: 'CRT screens', copy: 'Do not break old TV or monitor glass. Keep the screen face up and ask for trained handling.', risk: 'Glass and lead risk', pictogram: 'screen', audioAvailable: true },
@@ -407,6 +439,7 @@ function Shell({
 
 function Home({ role, lots, applyChange, showToast, sync }: { role: Role; lots: MaterialLot[]; applyChange: (id: string, changes: Partial<MaterialLot>, type: SyncActionType, label?: string) => void; showToast: (text: string) => void; sync: SyncPanelProps }) {
   const latest = lots[0];
+const matchedRecyclers = latest ? getMatchedRecyclers(latest) : [];
   if (role === 'recycler') return <RecyclerHome lots={lots} applyChange={applyChange} showToast={showToast} sync={sync} />;
   return <main className="page">
     <div className="page-heading"><div><div className="eyebrow">Tuesday · 25 June 2024 · Pune</div>
@@ -423,7 +456,108 @@ function Home({ role, lots, applyChange, showToast, sync }: { role: Role; lots: 
       <div className="stat-label">Saved offline</div><div className="stat-value">03</div>
       <div className="stat-note">Will sync later</div></div></div>
     <div className="grid grid-2" style={{ marginBottom: 18 }}><div className="hero-card"><div className="hero-tag">One clear bridge</div><h2>Your material has a value. Let’s show it.</h2><p>Photograph, weigh and share one lot. Nearby verified recyclers can see the same details and make a fair offer.</p><Link href="/new-lot" className="button button-gold" data-testid="button-create-first-lot">Create a lot <ArrowRight size={15} /></Link></div><div className="card card-pad"><div className="card-header"><h2 className="section-title">Quick actions</h2><span className="section-meta">3 useful steps</span></div><div className="grid grid-2"><Link href="/new-lot" className="quick-action" data-testid="link-quick-new-lot"><span className="quick-icon"><Camera size={18} /></span><span><span className="quick-label">Add a lot</span><span className="quick-sub">Photo + weight</span></span></Link><Link href="/prices" className="quick-action" data-testid="link-quick-prices"><span className="quick-icon" style={{ background: '#f6e9c8', color: '#9c6d1e' }}><CircleDollarSign size={18} /></span><span><span className="quick-label">Check prices</span><span className="quick-sub">Today in Pune</span></span></Link><Link href="/safety" className="quick-action" data-testid="link-quick-safety"><span className="quick-icon" style={{ background: '#f5dfd8', color: '#a45339' }}><ShieldCheck size={18} /></span><span><span className="quick-label">Stay safe</span><span className="quick-sub">4 simple guides</span></span></Link><Link href="/earnings" className="quick-action" data-testid="link-quick-earnings"><span className="quick-icon" style={{ background: '#e4e9db', color: '#597649' }}><HandCoins size={18} /></span><span><span className="quick-label">See earnings</span><span className="quick-sub">Your ledger</span></span></Link></div></div></div>
-    <div className="grid grid-2"><div className="card card-pad"><div className="card-header"><h2 className="section-title">Active lot</h2><Link href="/lots" className="section-meta" data-testid="link-view-all-lots">View all <ChevronRight size={13} style={{ verticalAlign: 'middle' }} /></Link></div><div className="lot-row"><div className="lot-thumb"><Recycle size={21} /></div><div><div className="lot-name">{latest.category}</div><div className="lot-desc">{latest.weightKg} kg · {latest.collectionLocation}</div></div><div className="lot-amount"><strong>{formatMoney(latest.quotedPrice)}</strong><br /><StatusPill status={latest.status} /></div></div><div className="divider" /><div className="small-copy" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span>Handover progress</span><strong style={{ color: '#3d7253' }}>2 of 4 steps</strong></div><div className="progress-line"><span style={{ width: '50%' }} /></div></div><div className="card card-pad match-card"><div className="card-header"><h2 className="section-title">Nearby recycler match</h2><span className="lot-status matched">Best match</span></div><div className="match-facility"><div className="facility-badge">GR</div><div><div className="lot-name">GreenLoop Recovery</div><div className="lot-desc"><MapPin size={11} style={{ verticalAlign: 'middle' }} /> 4.8 km · Bhosari</div></div></div><div className="divider" /><div className="grid grid-2"><div><div className="section-meta">Their offer</div><div className="stat-value" style={{ fontSize: 22, marginTop: 5 }}>₹275<span style={{ fontSize: 11, letterSpacing: 0 }}>/kg</span></div></div><div><div className="section-meta">Pickup</div><div className="lot-name" style={{ marginTop: 10 }}>Tomorrow, 9–12</div></div></div><button className="button button-primary" style={{ width: '100%', marginTop: 16 }} onClick={() => showToast('GreenLoop marked for your handover')} data-testid="button-choose-recycler">Choose this recycler <ArrowRight size={15} /></button></div></div>
+<div className="card card-pad match-card">
+  <div className="card-header">
+    <h2 className="section-title">Nearby recycler matches</h2>
+    <span className="lot-status matched">
+      {matchedRecyclers.length} found
+    </span>
+  </div>
+
+  {matchedRecyclers.length > 0 ? (
+    <div className="grid" style={{ gap: 12 }}>
+      {matchedRecyclers.map(recycler => (
+        <div
+          key={recycler.name}
+          style={{
+            border: '1px solid #e4ddce',
+            borderRadius: 10,
+            padding: 14
+          }}
+        >
+          <div className="match-facility">
+            <div className="facility-badge">
+              {recycler.name
+                .split(' ')
+                .map(word => word[0])
+                .join('')
+                .slice(0, 2)}
+            </div>
+
+            <div>
+              <div className="lot-name">{recycler.name}</div>
+
+              <div className="lot-desc">
+                <MapPin
+                  size={11}
+                  style={{ verticalAlign: 'middle' }}
+                />{' '}
+                {recycler.distanceKm} km · {recycler.facilityLocation}
+              </div>
+            </div>
+          </div>
+
+          <div className="divider" />
+
+          <div className="grid grid-2">
+            <div>
+              <div className="section-meta">Offer</div>
+
+              <div
+                className="lot-name"
+                style={{ marginTop: 7 }}
+              >
+                {recycler.offeredRates}
+              </div>
+            </div>
+
+            <div>
+              <div className="section-meta">Pickup</div>
+
+              <div
+                className="lot-name"
+                style={{ marginTop: 7 }}
+              >
+                {recycler.pickupAvailability}
+              </div>
+            </div>
+          </div>
+
+          <div className="small-copy" style={{ marginTop: 10 }}>
+            ✓ Verified · Accepts {recycler.materialsAccepted.join(' · ')}
+          </div>
+
+          <button
+            className="button button-primary"
+            style={{ width: '100%', marginTop: 14 }}
+            onClick={() => {
+              applyChange(
+                latest.id,
+                { recyclerId: recycler.name },
+                'update',
+                `Recycler selected · ${latest.id}`
+              );
+
+              showToast(`${recycler.name} selected for ${latest.id}`);
+            }}
+            data-testid={`button-choose-recycler-${recycler.name}`}
+          >
+            Choose this recycler <ArrowRight size={15} />
+          </button>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <div className="empty-state">
+      <Search size={28} />
+      <h3>No matching recycler found</h3>
+      <p>
+        No verified recycler currently accepts this material
+        in your area.
+      </p>
+    </div>
+  )}
+</div>
     <div className="card card-pad" style={{ marginTop: 18 }}><div className="card-header"><h2 className="section-title">Today’s price snapshot</h2><Link href="/prices" className="section-meta" data-testid="link-see-price-board">Full price board <ChevronRight size={13} style={{ verticalAlign: 'middle' }} /></Link></div><div className="grid grid-3">{prices.slice(0, 3).map(p => <div key={p.category}><div className="section-meta">{p.category}</div><div style={{ color: '#294d44', fontFamily: 'Space Grotesk', fontSize: 22, marginTop: 7 }}>{formatMoney(p.buyingPrice)}<small style={{ color: '#7b8c83', fontFamily: 'Manrope', fontSize: 10 }}> / {p.unit}</small></div><div className={p.trend === 'up' ? 'trend-up' : 'trend-flat'} style={{ fontSize: 10, marginTop: 3 }}>{p.trend === 'up' ? '↑ Up today' : '→ Stable today'}</div></div>)}</div></div>
     <div className="notice" style={{ marginTop: 18 }}><ShieldCheck size={16} /><span><strong>Safety first:</strong> Keep batteries separate from the rest of your pile. Never burn wires. <Link href="/safety" style={{ color: '#2f694d', fontWeight: 800 }} data-testid="link-safety-reminder">See the picture guide.</Link></span></div>
     <SyncQueuePanel {...sync} />
@@ -447,8 +581,28 @@ function NewLot({ onCreate, showToast }: { onCreate: (lot: MaterialLot) => void;
   const [category, setCategory] = useState('Circuit boards'); const [weight, setWeight] = useState('8'); const [condition, setCondition] = useState('Sorted, dry'); const [description, setDescription] = useState(''); const [image, setImage] = useState(''); const [submitted, setSubmitted] = useState(false);
   const rate = category === 'Circuit boards' ? 285 : category === 'Copper wire' ? 505 : category === 'Batteries' ? 92 : 68;
   const estimate = Math.round((Number(weight) || 0) * rate * .95);
-  const handleCreate = () => { if (!Number(weight) || Number(weight) <= 0) return; onCreate({ id: `LOT-${Math.floor(2400 + Math.random() * 500)}`, category, description: description || `Collected ${category.toLowerCase()} for safe recovery`, image, weightKg: Number(weight), condition, estimatedValue: estimate, quotedPrice: 0, finalPrice: 0, collectedAt: 'Just now', collectionLocation: 'Current location · Pune', status: 'Matching', recyclerId: 'GreenLoop Recovery' }); setSubmitted(true); showToast('Lot saved on this phone'); };
-  if (submitted) return <main className="page"><div className="card" style={{ maxWidth: 620, margin: '46px auto', padding: 34, textAlign: 'center' }}><div className="facility-badge" style={{ margin: '0 auto 18px', width: 58, height: 58, background: '#e1f0e3', color: '#3d7b56' }}><CheckCircle2 size={29} /></div><div className="eyebrow">Lot saved offline</div><h1 className="page-title" style={{ fontSize: 32 }}>Your lot is ready to be matched.</h1><p className="page-intro" style={{ margin: '0 auto 22px' }}>Nearby recyclers can now see what you have. Keep the material dry and separate until pickup.</p><div className="estimate-card" style={{ textAlign: 'left', marginBottom: 20 }}><div className="section-meta" style={{ color: '#b9cec2' }}>Instant estimate</div><div className="estimate-value">{formatMoney(estimate)}</div><div className="estimate-range">Based on {weight} kg of {category.toLowerCase()} · final amount after weighing</div></div><div style={{ display: 'flex', gap: 9, justifyContent: 'center', flexWrap: 'wrap' }}><Link href="/lots" className="button button-primary" data-testid="link-see-new-lot">See my lot <ArrowRight size={15} /></Link><button className="button button-quiet" onClick={() => setSubmitted(false)} data-testid="button-add-another-lot"><Plus size={15} /> Add another</button></div></div></main>;
+const handleCreate = () => {
+  if (!Number(weight) || Number(weight) <= 0) return;
+
+  onCreate({
+    id: `LOT-${Math.floor(2400 + Math.random() * 500)}`,
+    category,
+    description: description || `Collected ${category.toLowerCase()} for safe recovery`,
+    image,
+    weightKg: Number(weight),
+    condition,
+    estimatedValue: estimate,
+    quotedPrice: 0,
+    finalPrice: 0,
+    collectedAt: 'Just now',
+    collectionLocation: 'Current location · Pune',
+    status: 'Matching',
+    recyclerId: ''
+  });
+
+  setSubmitted(true);
+  showToast('Lot saved on this phone');
+};  if (submitted) return <main className="page"><div className="card" style={{ maxWidth: 620, margin: '46px auto', padding: 34, textAlign: 'center' }}><div className="facility-badge" style={{ margin: '0 auto 18px', width: 58, height: 58, background: '#e1f0e3', color: '#3d7b56' }}><CheckCircle2 size={29} /></div><div className="eyebrow">Lot saved offline</div><h1 className="page-title" style={{ fontSize: 32 }}>Your lot is ready to be matched.</h1><p className="page-intro" style={{ margin: '0 auto 22px' }}>Nearby recyclers can now see what you have. Keep the material dry and separate until pickup.</p><div className="estimate-card" style={{ textAlign: 'left', marginBottom: 20 }}><div className="section-meta" style={{ color: '#b9cec2' }}>Instant estimate</div><div className="estimate-value">{formatMoney(estimate)}</div><div className="estimate-range">Based on {weight} kg of {category.toLowerCase()} · final amount after weighing</div></div><div style={{ display: 'flex', gap: 9, justifyContent: 'center', flexWrap: 'wrap' }}><Link href="/lots" className="button button-primary" data-testid="link-see-new-lot">See my lot <ArrowRight size={15} /></Link><button className="button button-quiet" onClick={() => setSubmitted(false)} data-testid="button-add-another-lot"><Plus size={15} /> Add another</button></div></div></main>;
 return <main className="page"><div className="page-heading"><div><div className="eyebrow">New lot · step 1 of 1</div><h1 className="page-title">Show what you collected.</h1><p className="page-intro">One lot means one clear quote. Use simple details — approximate is okay.</p></div><div className="offline-pill"><span className="offline-dot" />Saved on this phone</div></div><div className="grid grid-2"><div className="card card-pad"><div className="field" style={{ marginBottom: 19 }}><label className="field-label">What material is this?</label><select className="select" value={category} onChange={e => setCategory(e.target.value)} data-testid="select-lot-category"><option>Circuit boards</option><option>Copper wire</option><option>Aluminium</option><option>Batteries</option><option>Screens</option></select></div><div className="grid grid-2" style={{ marginBottom: 19 }}><div><label className="field-label">Approx. weight</label><div style={{ display: 'flex', gap: 7 }}><input className="input" type="number" min="0" value={weight} onChange={e => setWeight(e.target.value)} data-testid="input-lot-weight" /><span className="button button-quiet" style={{ minWidth: 48, padding: 0, cursor: 'default' }}>kg</span></div></div><div><label className="field-label">Condition</label><select className="select" value={condition} onChange={e => setCondition(e.target.value)} data-testid="select-lot-condition"><option>Sorted, dry</option><option>Needs sorting</option><option>Intact</option><option>Mixed / unknown</option></select></div></div><div style={{ marginBottom: 19 }}><label className="field-label">Short note <span style={{ fontWeight: 400 }}>(optional)</span></label><input className="input" value={description} onChange={e => setDescription(e.target.value)} placeholder="For example: from desktop towers" data-testid="input-lot-description" /></div><label className="field-label">Add a picture <span style={{ fontWeight: 400, color: '#b44' }}>* required</span></label><label className="upload-zone">{image ? <><CheckCircle2 size={25} className="upload-icon" /><strong>{image}</strong><span className="small-copy">Picture selected. Tap to change.</span></> : <><ImagePlus size={28} className="upload-icon" /><strong>Tap to take or choose a photo</strong><span className="small-copy">A photo is required to create the lot.</span></>}<input type="file" accept="image/*" required onChange={e => {
   const file = e.target.files?.[0];
 
