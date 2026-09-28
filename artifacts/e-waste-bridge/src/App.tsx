@@ -205,7 +205,7 @@ function LoginPage({ onSelectRole }: { onSelectRole: (role: Role) => void }) {
           e•w
         </div>
 
-        <div className="eyebrow">E-waste Bridge</div>
+        <div className="eyebrow">Kabadiwala Connect</div>
 
         <h1
           className="page-title"
