@@ -202,7 +202,7 @@ function LoginPage({ onSelectRole }: { onSelectRole: (role: Role) => void }) {
             fontSize: 18,
           }}
         >
-          e•w
+          KWC
         </div>
 
         <div className="eyebrow">Kabadiwala Connect</div>
@@ -377,7 +377,7 @@ function Navigation({ role }: { role: Role }) {
     ? [{ href: '/', label: 'My home', icon: Landmark }, { href: '/new-lot', label: 'New lot', icon: Plus }, { href: '/prices', label: 'Price board', icon: CircleDollarSign }, { href: '/lots', label: 'My lots', icon: Box }, { href: '/earnings', label: 'Earnings', icon: WalletCards }, { href: '/safety', label: 'Safety guide', icon: ShieldCheck }]
     : [{ href: '/', label: 'Intake overview', icon: Landmark }, { href: '/recycler', label: 'Intake queue', icon: PackageCheck }, { href: '/prices', label: 'Price board', icon: CircleDollarSign }, { href: '/safety', label: 'Safety guide', icon: ShieldCheck }];
   return <><aside className="app-rail">
-    <div className="brand-lockup"><div className="brand-mark">e•w</div><div><div className="brand-name">Kabadiwala Connect</div><div className="brand-sub">field exchange</div></div></div>
+    <div className="brand-lockup"><div className="brand-mark">KWC</div><div><div className="brand-name">Kabadiwala Connect</div><div className="brand-sub">field exchange</div></div></div>
     <div className="nav-label">{role === 'collector' ? 'Collector view' : 'Recycler view'}</div>
     <nav className="nav-stack">{items.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`nav-item ${location === href ? 'active' : ''}`} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon /><span>{label}</span></Link>)}</nav>
     <div className="rail-bottom"><div className="demo-stamp"><strong>Demo workspace</strong>Local data only. Your lots stay on this phone until sync.</div></div>
